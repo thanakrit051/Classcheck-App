@@ -1,0 +1,120 @@
+<script>
+    // 🔴 เอาลิงก์ที่ได้จาก Sheet.best มาวางตรงนี้ครับ 🔴
+    const API_URL = "https://api.sheetbest.com/sheets/YOUR_SHEET_BEST_ID"; 
+    
+    // State S เริ่มต้น (จะถูกทับเมื่อโหลดข้อมูลจาก Google Sheet สำเร็จ)
+    let S = {
+        classes: [{ id: 'C01', subject: 'คณิตศาสตร์ ม.1/1', students: [{num: 1, name: 'สมชาย ดีใจ'}, {num: 2, name: 'สมหญิง รักเรียน'}] }],
+        attendance: {},
+        date: new Date().toISOString().split('T')[0] 
+    };
+
+    // 1. ฟังก์ชันดึงข้อมูลจาก Google Sheets ผ่าน API
+    async function loadData() {
+        try {
+            // ดึงข้อมูลแถวทั้งหมดจาก Sheets
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            
+            // data[0] คือข้อมูลแถวแรก (Row 2) ในคอลัมน์ Data_JSON
+            if (data && data[0] && data[0].Data_JSON) {
+                S = JSON.parse(data[0].Data_JSON);
+                // อัปเดตวันที่ให้เป็นปัจจุบันเสมอ
+                S.date = new Date().toISOString().split('T')[0];
+            }
+            
+            // เตรียมโครงสร้าง Attendance ให้พร้อมใช้งาน
+            if (!S.attendance) S.attendance = {};
+            if (!S.attendance['C01']) S.attendance['C01'] = {};
+            if (!S.attendance['C01'][S.date]) S.attendance['C01'][S.date] = {};
+            
+            renderApp();
+            showToast('โหลดข้อมูลจาก Google Sheets แล้ว 📊');
+        } catch (error) {
+            console.error("Error loading data:", error);
+            showToast('โหลดข้อมูลล้มเหลว ลองใหม่อีกครั้ง');
+        }
+    }
+
+    // 2. ฟังก์ชันอัปเดตข้อมูลกลับไปที่ Google Sheets (ทับแถวแรกเดิม)
+    async function saveData() {
+        try {
+            showToast('กำลังบันทึกลง Google Sheets... ⏳');
+            
+            // สั่งอัปเดตข้อมูลที่แถวที่ 0 (ซึ่งก็คือ Row 2 ใน Google Sheets ของเรา)
+            const response = await fetch(`${API_URL}/0`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    "Data_JSON": JSON.stringify(S) // แปลง State S เป็น String ยัดกลับคอลัมน์เดิม
+                })
+            });
+
+            if (response.ok) {
+                showToast('บันทึกลง Google Sheets สำเร็จ! ✅');
+                updateStats();
+            } else {
+                throw new Error("Save failed");
+            }
+        } catch (error) {
+            console.error("Error saving data:", error);
+            showToast('❌ บันทึกล้มเหลว');
+        }
+    }
+
+    // 3. ฟังก์ชันเช็คชื่อ (Quick Action)
+    function markStatus(classId, studentNum, status) {
+        S.attendance[classId][S.date][studentNum] = { status: status };
+        saveData(); // กดปุ๊บ ส่งขึ้น Google Sheet ปั๊บ
+        renderApp();
+    }
+
+    // 4. แสดงผลรายชื่อนักเรียนบน UI
+    function renderApp() {
+        const container = document.getElementById('students-container');
+        container.innerHTML = ''; 
+        const todayData = S.attendance['C01'][S.date] || {};
+
+        S.classes[0].students.forEach(student => {
+            const status = todayData[student.num]?.status || '-';
+            container.innerHTML += `
+                <div class="student-row">
+                    <div>
+                        <strong>เลขที่ ${student.num}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">${student.name}</span>
+                    </div>
+                    <div class="quick-actions">
+                        <button class="btn-p" onclick="markStatus('C01', ${student.num}, 'p')" ${status === 'p' ? 'style="border: 2px solid var(--status-p)"' : ''}>มา</button>
+                        <button class="btn-l" onclick="markStatus('C01', ${student.num}, 'l')" ${status === 'l' ? 'style="border: 2px solid var(--status-l)"' : ''}>สาย</button>
+                        <button class="btn-a" onclick="markStatus('C01', ${student.num}, 'a')" ${status === 'a' ? 'style="border: 2px solid var(--status-a)"' : ''}>ขาด</button>
+                    </div>
+                </div>
+            `;
+        });
+        updateStats();
+    }
+
+    // 5. อัปเดตตัวเลขแผงสถิติด้านบน
+    function updateStats() {
+        let p = 0, l = 0, a = 0;
+        const todayData = S.attendance['C01'][S.date] || {};
+        Object.values(todayData).forEach(record => {
+            if(record.status === 'p') p++;
+            if(record.status === 'l') l++;
+            if(record.status === 'a') a++;
+        });
+        document.getElementById('stat-p').innerText = p;
+        document.getElementById('stat-l').innerText = l;
+        document.getElementById('stat-a').innerText = a;
+    }
+
+    function showToast(msg) {
+        const toast = document.getElementById("toast");
+        toast.innerText = msg;
+        toast.className = "show";
+        setTimeout(() => { if(toast.innerText === msg) toast.className = ""; }, 3000);
+    }
+
+    // โหลดข้อมูลอัตโนมัติเมื่อเปิดหน้าเว็บ
+    window.onload = loadData;
+</script>
